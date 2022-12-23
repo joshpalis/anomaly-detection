@@ -20,20 +20,23 @@ buildscript {
         opensearch_version = System.getProperty("opensearch.version", "3.0.0-SNAPSHOT")
         buildVersionQualifier = System.getProperty("build.version_qualifier", "")
         // 3.0.0-SNAPSHOT -> 3.0.0.0-SNAPSHOT
-        version_tokens = opensearch_version.tokenize('-')
+        version_tokens = opensearch_version.tokenize('-') 
         opensearch_build = version_tokens[0] + '.0'
+        job_scheduler_build = version_tokens[0]
         plugin_no_snapshot = opensearch_build
         if (buildVersionQualifier) {
             opensearch_build += "-${buildVersionQualifier}"
+            job_scheduler_build += "-${buildVersionQualifier}"
             plugin_no_snapshot += "-${buildVersionQualifier}"
         }
         if (isSnapshot) {
             opensearch_build += "-SNAPSHOT"
+            job_scheduler_build += "-SNAPSHOT"
         }
         opensearch_no_snapshot = opensearch_version.replace("-SNAPSHOT","")
         js_resource_folder = "src/test/resources/job-scheduler"
         common_utils_version = System.getProperty("common_utils.version", opensearch_build)
-        job_scheduler_version = System.getProperty("job_scheduler.version", opensearch_build)
+        job_scheduler_version = System.getProperty("job_scheduler.version", job_scheduler_build)
         bwcVersionShort = "2.5.0"
         bwcVersion = bwcVersionShort + ".0"
         bwcOpenSearchADDownload = 'https://ci.opensearch.org/ci/dbc/distribution-build-opensearch/' + bwcVersionShort + '/latest/linux/x64/tar/builds/' +
@@ -102,10 +105,10 @@ configurations {
 }
 
 dependencies {
-    zipArchive group: 'org.opensearch.plugin', name:'opensearch-job-scheduler', version: "${opensearch_build}"
+    zipArchive group: 'org.opensearch.plugin', name:'opensearch-job-scheduler', version: "${job_scheduler_build}"
     implementation "org.opensearch:opensearch:${opensearch_version}"
     compileOnly "org.opensearch.plugin:opensearch-scripting-painless-spi:${opensearch_version}"
-    compileOnly "org.opensearch:opensearch-job-scheduler-spi:${job_scheduler_version}"
+    compileOnly "org.opensearch.plugin:opensearch-job-scheduler-spi:${job_scheduler_version}"
     implementation "org.opensearch:common-utils:${common_utils_version}"
     implementation "org.opensearch.client:opensearch-rest-client:${opensearch_version}"
     implementation group: 'com.google.guava', name: 'guava', version:'31.0.1-jre'
