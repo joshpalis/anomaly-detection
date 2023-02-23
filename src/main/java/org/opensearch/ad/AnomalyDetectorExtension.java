@@ -21,6 +21,8 @@ import java.util.stream.Stream;
 import org.opensearch.action.ActionRequest;
 import org.opensearch.action.ActionResponse;
 import org.opensearch.action.support.TransportAction;
+import org.opensearch.ad.breaker.ADCircuitBreakerService;
+import org.opensearch.ad.indices.AnomalyDetectionIndices;
 import org.opensearch.ad.model.AnomalyDetector;
 import org.opensearch.ad.model.AnomalyDetectorJob;
 import org.opensearch.ad.model.AnomalyResult;
@@ -30,18 +32,24 @@ import org.opensearch.ad.rest.RestIndexAnomalyDetectorAction;
 import org.opensearch.ad.rest.RestValidateAnomalyDetectorAction;
 import org.opensearch.ad.settings.AnomalyDetectorSettings;
 import org.opensearch.ad.settings.EnabledSetting;
+import org.opensearch.ad.task.ADTaskCacheManager;
+import org.opensearch.ad.task.ADTaskManager;
 import org.opensearch.ad.transport.ADJobParameterAction;
 import org.opensearch.ad.transport.ADJobParameterTransportAction;
 import org.opensearch.ad.transport.ADJobRunnerAction;
 import org.opensearch.ad.transport.ADJobRunnerTransportAction;
 import org.opensearch.client.opensearch.OpenSearchClient;
+import org.opensearch.cluster.service.ClusterService;
 import org.opensearch.common.settings.Setting;
 import org.opensearch.common.xcontent.NamedXContentRegistry;
+import org.opensearch.monitor.jvm.JvmService;
 import org.opensearch.sdk.BaseExtension;
 import org.opensearch.sdk.ExtensionRestHandler;
 import org.opensearch.sdk.ExtensionsRunner;
 import org.opensearch.sdk.SDKClient;
+import org.opensearch.sdk.SDKClusterService;
 import org.opensearch.sdk.SDKClient.SDKRestClient;
+import org.opensearch.threadpool.ThreadPool;
 
 import com.google.common.collect.ImmutableList;
 
@@ -63,6 +71,57 @@ public class AnomalyDetectorExtension extends BaseExtension {
                 new RestValidateAnomalyDetectorAction(extensionsRunner(), this),
                 new RestGetAnomalyDetectorAction(extensionsRunner(), this)
             );
+    }
+
+    @Override
+    public Collection<Object> createComponents () {
+
+        SDKRestClient restClient = getRestClient();
+        SDKClusterService clusterService = new SDKClusterService(extensionsRunner());
+        Settings environmentSettings = extensionsRunner().getEnvironmentSettings();
+        NamedXContentRegistry xContentRegistry = extensionsRunner().getNamedXContentRegistry().getRegistry();
+        ThreadPool threadPool = extensionsRunner().getThreadPool();
+
+        JvmService jvmService = new JvmService(environmentSettings);
+
+        ADCircuitBreakerService adCircuitBreakerService = new ADCircuitBreakerService(jvmService).init();
+
+        MemoryTracker memoryTracker = new MemoryTracker(
+            jvmService, 
+            AnomalyDetectorSettings.MODEL_MAX_SIZE_PERCENTAGE.get(environmentSettings),
+            AnomalyDetectorSettings.DESIRED_MODEL_SIZE_PERCENTAGE, 
+            clusterService, 
+            ADCircuitBreakerService
+        );
+
+        ADTaskCacheManager adTaskCacheManager = new ADTaskCacheManager(
+            environmentSettings, 
+            clusterService, 
+            memoryTracker
+        );
+
+        AnomalyDetectionIndices anomalyDetectionIndices = new AnomalyDetectionIndices(
+            restClient, 
+            clusterService, 
+            threadPool,
+            environmentSettings, 
+            null, // nodeFilter
+            AnomalyDetectorSettings.MAX_UPDATE_RETRY_TIMES
+        );
+
+        ADTaskManager adTaskManager = new ADTaskManager(
+            environmentSettings,
+            clusterService,
+            restClient,
+            xContentRegistry,
+            anomalyDetectionIndices,
+            null, // nodeFilter
+            null, // hashRing
+            null,
+            threadPool
+        );
+
+        return ImmutableList.of(anomalyDetectionIndices, jvmService, adCircuitBreakerService, adTaskManager, adTaskCacheManager);
     }
 
     @Override

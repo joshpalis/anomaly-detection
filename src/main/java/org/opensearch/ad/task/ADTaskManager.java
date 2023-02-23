@@ -135,9 +135,9 @@ import org.opensearch.ad.transport.ForwardADTaskAction;
 import org.opensearch.ad.transport.ForwardADTaskRequest;
 import org.opensearch.ad.util.DiscoveryNodeFilterer;
 import org.opensearch.ad.util.RestHandlerUtils;
-import org.opensearch.client.Client;
+import org.opensearch.sdk.SDKClient.SDKRestClient;
 import org.opensearch.cluster.node.DiscoveryNode;
-import org.opensearch.cluster.service.ClusterService;
+import org.opensearch.sdk.SDKClusterService;
 import org.opensearch.common.bytes.BytesReference;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
@@ -182,7 +182,7 @@ public class ADTaskManager {
     private final Logger logger = LogManager.getLogger(this.getClass());
     static final String STATE_INDEX_NOT_EXIST_MSG = "State index does not exist.";
     private final Set<String> retryableErrors = ImmutableSet.of(EXCEED_HISTORICAL_ANALYSIS_LIMIT, NO_ELIGIBLE_NODE_TO_RUN_DETECTOR);
-    private final Client client;
+    private final SDKRestClient client;
     private final ClusterService clusterService;
     private final NamedXContentRegistry xContentRegistry;
     private final AnomalyDetectionIndices detectionIndices;
@@ -206,8 +206,8 @@ public class ADTaskManager {
 
     public ADTaskManager(
         Settings settings,
-        ClusterService clusterService,
-        Client client,
+        SDKClusterService clusterService,
+        SDKRestClient client,
         NamedXContentRegistry xContentRegistry,
         AnomalyDetectionIndices detectionIndices,
         DiscoveryNodeFilterer nodeFilter,
