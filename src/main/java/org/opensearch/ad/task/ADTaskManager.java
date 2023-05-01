@@ -1504,50 +1504,52 @@ public class ADTaskManager {
     private void getADTaskProfile(ADTask adDetectorLevelTask, ActionListener<ADTaskProfile> listener) {
         String detectorId = adDetectorLevelTask.getDetectorId();
 
-        hashRing.getAllEligibleDataNodesWithKnownAdVersion(dataNodes -> {
-            ADTaskProfileRequest adTaskProfileRequest = new ADTaskProfileRequest(detectorId, dataNodes);
-            client.execute(ADTaskProfileAction.INSTANCE, adTaskProfileRequest, ActionListener.wrap(response -> {
-                if (response.hasFailures()) {
-                    listener.onFailure(response.failures().get(0));
-                    return;
-                }
+        /* @anomaly.detection Commented until we have extension support for hashring : https://github.com/opensearch-project/opensearch-sdk-java/issues/200 
+        hashRing.getAllEligibleDataNodesWithKnownAdVersion(dataNodes ->
+        */
+        DiscoveryNode[] dataNodes = { clusterService.localNode() };
+        ADTaskProfileRequest adTaskProfileRequest = new ADTaskProfileRequest(detectorId, dataNodes);
+        client.execute(ADTaskProfileAction.INSTANCE, adTaskProfileRequest, ActionListener.wrap(response -> {
+            if (response.hasFailures()) {
+                listener.onFailure(response.failures().get(0));
+                return;
+            }
 
-                List<ADEntityTaskProfile> adEntityTaskProfiles = new ArrayList<>();
-                ADTaskProfile detectorTaskProfile = new ADTaskProfile(adDetectorLevelTask);
-                for (ADTaskProfileNodeResponse node : response.getNodes()) {
-                    ADTaskProfile taskProfile = node.getAdTaskProfile();
-                    if (taskProfile != null) {
-                        if (taskProfile.getNodeId() != null) {
-                            // HC detector: task profile from coordinating node
-                            // Single entity detector: task profile from worker node
-                            detectorTaskProfile.setTaskId(taskProfile.getTaskId());
-                            detectorTaskProfile.setShingleSize(taskProfile.getShingleSize());
-                            detectorTaskProfile.setRcfTotalUpdates(taskProfile.getRcfTotalUpdates());
-                            detectorTaskProfile.setThresholdModelTrained(taskProfile.getThresholdModelTrained());
-                            detectorTaskProfile.setThresholdModelTrainingDataSize(taskProfile.getThresholdModelTrainingDataSize());
-                            detectorTaskProfile.setModelSizeInBytes(taskProfile.getModelSizeInBytes());
-                            detectorTaskProfile.setNodeId(taskProfile.getNodeId());
-                            detectorTaskProfile.setTotalEntitiesCount(taskProfile.getTotalEntitiesCount());
-                            detectorTaskProfile.setDetectorTaskSlots(taskProfile.getDetectorTaskSlots());
-                            detectorTaskProfile.setPendingEntitiesCount(taskProfile.getPendingEntitiesCount());
-                            detectorTaskProfile.setRunningEntitiesCount(taskProfile.getRunningEntitiesCount());
-                            detectorTaskProfile.setRunningEntities(taskProfile.getRunningEntities());
-                            detectorTaskProfile.setAdTaskType(taskProfile.getAdTaskType());
-                        }
-                        if (taskProfile.getEntityTaskProfiles() != null) {
-                            adEntityTaskProfiles.addAll(taskProfile.getEntityTaskProfiles());
-                        }
+            List<ADEntityTaskProfile> adEntityTaskProfiles = new ArrayList<>();
+            ADTaskProfile detectorTaskProfile = new ADTaskProfile(adDetectorLevelTask);
+            for (ADTaskProfileNodeResponse node : response.getNodes()) {
+                ADTaskProfile taskProfile = node.getAdTaskProfile();
+                if (taskProfile != null) {
+                    if (taskProfile.getNodeId() != null) {
+                        // HC detector: task profile from coordinating node
+                        // Single entity detector: task profile from worker node
+                        detectorTaskProfile.setTaskId(taskProfile.getTaskId());
+                        detectorTaskProfile.setShingleSize(taskProfile.getShingleSize());
+                        detectorTaskProfile.setRcfTotalUpdates(taskProfile.getRcfTotalUpdates());
+                        detectorTaskProfile.setThresholdModelTrained(taskProfile.getThresholdModelTrained());
+                        detectorTaskProfile.setThresholdModelTrainingDataSize(taskProfile.getThresholdModelTrainingDataSize());
+                        detectorTaskProfile.setModelSizeInBytes(taskProfile.getModelSizeInBytes());
+                        detectorTaskProfile.setNodeId(taskProfile.getNodeId());
+                        detectorTaskProfile.setTotalEntitiesCount(taskProfile.getTotalEntitiesCount());
+                        detectorTaskProfile.setDetectorTaskSlots(taskProfile.getDetectorTaskSlots());
+                        detectorTaskProfile.setPendingEntitiesCount(taskProfile.getPendingEntitiesCount());
+                        detectorTaskProfile.setRunningEntitiesCount(taskProfile.getRunningEntitiesCount());
+                        detectorTaskProfile.setRunningEntities(taskProfile.getRunningEntities());
+                        detectorTaskProfile.setAdTaskType(taskProfile.getAdTaskType());
+                    }
+                    if (taskProfile.getEntityTaskProfiles() != null) {
+                        adEntityTaskProfiles.addAll(taskProfile.getEntityTaskProfiles());
                     }
                 }
-                if (adEntityTaskProfiles != null && adEntityTaskProfiles.size() > 0) {
-                    detectorTaskProfile.setEntityTaskProfiles(adEntityTaskProfiles);
-                }
-                listener.onResponse(detectorTaskProfile);
-            }, e -> {
-                logger.error("Failed to get task profile for task " + adDetectorLevelTask.getTaskId(), e);
-                listener.onFailure(e);
-            }));
-        }, listener);
+            }
+            if (adEntityTaskProfiles != null && adEntityTaskProfiles.size() > 0) {
+                detectorTaskProfile.setEntityTaskProfiles(adEntityTaskProfiles);
+            }
+            listener.onResponse(detectorTaskProfile);
+        }, e -> {
+            logger.error("Failed to get task profile for task " + adDetectorLevelTask.getTaskId(), e);
+            listener.onFailure(e);
+        }));
 
     }
 
