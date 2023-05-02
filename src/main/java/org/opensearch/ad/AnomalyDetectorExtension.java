@@ -57,6 +57,7 @@ import org.opensearch.ad.ratelimit.EntityColdStartWorker;
 import org.opensearch.ad.ratelimit.ResultWriteWorker;
 import org.opensearch.ad.rest.RestAnomalyDetectorJobAction;
 import org.opensearch.ad.rest.RestDeleteAnomalyDetectorAction;
+import org.opensearch.ad.rest.RestDeleteAnomalyResultsAction;
 import org.opensearch.ad.rest.RestGetAnomalyDetectorAction;
 import org.opensearch.ad.rest.RestIndexAnomalyDetectorAction;
 import org.opensearch.ad.rest.RestPreviewAnomalyDetectorAction;
@@ -100,6 +101,8 @@ import org.opensearch.ad.transport.AnomalyResultAction;
 import org.opensearch.ad.transport.AnomalyResultTransportAction;
 import org.opensearch.ad.transport.DeleteAnomalyDetectorAction;
 import org.opensearch.ad.transport.DeleteAnomalyDetectorTransportAction;
+import org.opensearch.ad.transport.DeleteAnomalyResultsAction;
+import org.opensearch.ad.transport.DeleteAnomalyResultsTransportAction;
 import org.opensearch.ad.transport.DeleteModelAction;
 import org.opensearch.ad.transport.DeleteModelTransportAction;
 import org.opensearch.ad.transport.EntityResultAction;
@@ -114,6 +117,8 @@ import org.opensearch.ad.transport.PreviewAnomalyDetectorAction;
 import org.opensearch.ad.transport.PreviewAnomalyDetectorTransportAction;
 import org.opensearch.ad.transport.ProfileAction;
 import org.opensearch.ad.transport.ProfileTransportAction;
+import org.opensearch.ad.transport.RCFPollingAction;
+import org.opensearch.ad.transport.RCFPollingTransportAction;
 import org.opensearch.ad.transport.RCFResultAction;
 import org.opensearch.ad.transport.RCFResultTransportAction;
 import org.opensearch.ad.transport.SearchADTasksAction;
@@ -215,6 +220,7 @@ public class AnomalyDetectorExtension extends BaseExtension implements ActionExt
                 new RestGetAnomalyDetectorAction(extensionsRunner(), restClient()),
                 new RestAnomalyDetectorJobAction(extensionsRunner(), restClient()),
                 new RestDeleteAnomalyDetectorAction(extensionsRunner(), restClient()),
+                new RestDeleteAnomalyResultsAction(extensionsRunner(), restClient()),
                 new RestStatsAnomalyDetectorAction(extensionsRunner(), restClient(), adStats, nodeFilter),
                 new RestSearchAnomalyDetectorAction(extensionsRunner(), restClient()),
                 new RestSearchAnomalyResultAction(extensionsRunner(), restClient()),
@@ -580,7 +586,7 @@ public class AnomalyDetectorExtension extends BaseExtension implements ActionExt
             xContentRegistry,
             anomalyDetectionIndices,
             nodeFilter,
-            null, // hashRing
+            // null, //hashring MultiNode support https://github.com/opensearch-project/opensearch-sdk-java/issues/200
             adTaskCacheManager,
             threadPool
         );
@@ -792,6 +798,7 @@ public class AnomalyDetectorExtension extends BaseExtension implements ActionExt
                 new ActionHandler<>(EntityResultAction.INSTANCE, EntityResultTransportAction.class),
                 new ActionHandler<>(ProfileAction.INSTANCE, ProfileTransportAction.class),
                 new ActionHandler<>(DeleteAnomalyDetectorAction.INSTANCE, DeleteAnomalyDetectorTransportAction.class),
+                new ActionHandler<>(DeleteAnomalyResultsAction.INSTANCE, DeleteAnomalyResultsTransportAction.class),
                 new ActionHandler<>(StatsAnomalyDetectorAction.INSTANCE, StatsAnomalyDetectorTransportAction.class),
                 new ActionHandler<>(ADStatsNodesAction.INSTANCE, ADStatsNodesTransportAction.class),
                 new ActionHandler<>(SearchAnomalyDetectorAction.INSTANCE, SearchAnomalyDetectorTransportAction.class),
@@ -804,6 +811,7 @@ public class AnomalyDetectorExtension extends BaseExtension implements ActionExt
                 new ActionHandler<>(ForwardADTaskAction.INSTANCE, ForwardADTaskTransportAction.class),
                 new ActionHandler<>(ADBatchAnomalyResultAction.INSTANCE, ADBatchAnomalyResultTransportAction.class),
                 new ActionHandler<>(ADCancelTaskAction.INSTANCE, ADCancelTaskTransportAction.class),
+                new ActionHandler<>(RCFPollingAction.INSTANCE, RCFPollingTransportAction.class),
                 new ActionHandler<>(ADTaskProfileAction.INSTANCE, ADTaskProfileTransportAction.class)
             );
     }

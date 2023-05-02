@@ -101,7 +101,6 @@ import org.opensearch.action.support.WriteRequest;
 import org.opensearch.action.update.UpdateRequest;
 import org.opensearch.action.update.UpdateResponse;
 import org.opensearch.ad.auth.UserIdentity;
-import org.opensearch.ad.cluster.HashRing;
 import org.opensearch.ad.common.exception.ADTaskCancelledException;
 import org.opensearch.ad.common.exception.AnomalyDetectionException;
 import org.opensearch.ad.common.exception.DuplicateTaskException;
@@ -196,14 +195,15 @@ public class ADTaskManager {
     private final Logger logger = LogManager.getLogger(this.getClass());
     static final String STATE_INDEX_NOT_EXIST_MSG = "State index does not exist.";
     private final Set<String> retryableErrors = ImmutableSet.of(EXCEED_HISTORICAL_ANALYSIS_LIMIT, NO_ELIGIBLE_NODE_TO_RUN_DETECTOR);
-    private final SDKRestClient client;
+    private final SDKRestClient sdkRestClient;
     private final OpenSearchAsyncClient sdkJavaAsyncClient;
-    private final SDKClusterService clusterService;
+    private final SDKClusterService sdkClusterService;
     private final SDKNamedXContentRegistry xContentRegistry;
     private final AnomalyDetectionIndices detectionIndices;
     private final DiscoveryNodeFilterer nodeFilter;
     private final ADTaskCacheManager adTaskCacheManager;
-    private final HashRing hashRing;
+    /* MultiNode support https://github.com/opensearch-project/opensearch-sdk-java/issues/200 */
+    // private final HashRing hashRing;
     private volatile Integer maxOldAdTaskDocsPerDetector;
     private volatile Integer pieceIntervalSeconds;
     private volatile boolean deleteADResultWhenDeleteDetector;
@@ -220,43 +220,47 @@ public class ADTaskManager {
 
     public ADTaskManager(
         Settings settings,
-        SDKClusterService clusterService,
-        SDKRestClient client,
+        SDKClusterService sdkClusterService,
+        SDKRestClient sdkRestClient,
         OpenSearchAsyncClient sdkJavaAsyncClient,
         SDKNamedXContentRegistry xContentRegistry,
         AnomalyDetectionIndices detectionIndices,
         DiscoveryNodeFilterer nodeFilter,
-        HashRing hashRing,
+        /* MultiNode support https://github.com/opensearch-project/opensearch-sdk-java/issues/200 */
+        // HashRing hashRing,
         ADTaskCacheManager adTaskCacheManager,
         ThreadPool threadPool
     ) {
-        this.client = client;
+        this.sdkRestClient = sdkRestClient;
         this.sdkJavaAsyncClient = sdkJavaAsyncClient;
         this.xContentRegistry = xContentRegistry;
         this.detectionIndices = detectionIndices;
         this.nodeFilter = nodeFilter;
-        this.clusterService = clusterService;
+        this.sdkClusterService = sdkClusterService;
         this.adTaskCacheManager = adTaskCacheManager;
-        this.hashRing = hashRing;
+        /* MultiNode support https://github.com/opensearch-project/opensearch-sdk-java/issues/200 */
+        // this.hashRing = hashRing;
 
         this.maxOldAdTaskDocsPerDetector = MAX_OLD_AD_TASK_DOCS_PER_DETECTOR.get(settings);
-        clusterService
+        sdkClusterService
             .getClusterSettings()
             .addSettingsUpdateConsumer(MAX_OLD_AD_TASK_DOCS_PER_DETECTOR, it -> maxOldAdTaskDocsPerDetector = it);
 
         this.pieceIntervalSeconds = BATCH_TASK_PIECE_INTERVAL_SECONDS.get(settings);
-        clusterService.getClusterSettings().addSettingsUpdateConsumer(BATCH_TASK_PIECE_INTERVAL_SECONDS, it -> pieceIntervalSeconds = it);
+        sdkClusterService
+            .getClusterSettings()
+            .addSettingsUpdateConsumer(BATCH_TASK_PIECE_INTERVAL_SECONDS, it -> pieceIntervalSeconds = it);
 
         this.deleteADResultWhenDeleteDetector = DELETE_AD_RESULT_WHEN_DELETE_DETECTOR.get(settings);
-        clusterService
+        sdkClusterService
             .getClusterSettings()
             .addSettingsUpdateConsumer(DELETE_AD_RESULT_WHEN_DELETE_DETECTOR, it -> deleteADResultWhenDeleteDetector = it);
 
         this.maxAdBatchTaskPerNode = MAX_BATCH_TASK_PER_NODE.get(settings);
-        clusterService.getClusterSettings().addSettingsUpdateConsumer(MAX_BATCH_TASK_PER_NODE, it -> maxAdBatchTaskPerNode = it);
+        sdkClusterService.getClusterSettings().addSettingsUpdateConsumer(MAX_BATCH_TASK_PER_NODE, it -> maxAdBatchTaskPerNode = it);
 
         this.maxRunningEntitiesPerDetector = MAX_RUNNING_ENTITIES_PER_DETECTOR_FOR_HISTORICAL_ANALYSIS.get(settings);
-        clusterService
+        sdkClusterService
             .getClusterSettings()
             .addSettingsUpdateConsumer(MAX_RUNNING_ENTITIES_PER_DETECTOR_FOR_HISTORICAL_ANALYSIS, it -> maxRunningEntitiesPerDetector = it);
 
@@ -265,7 +269,7 @@ public class ADTaskManager {
             .withType(TransportRequestOptions.Type.REG)
             .withTimeout(REQUEST_TIMEOUT.get(settings))
             .build();
-        clusterService
+        sdkClusterService
             .getClusterSettings()
             .addSettingsUpdateConsumer(
                 REQUEST_TIMEOUT,
@@ -411,7 +415,7 @@ public class ADTaskManager {
                 );
         }, listener);
         */
-        client
+        sdkRestClient
             .execute(
                 ForwardADTaskAction.INSTANCE,
                 forwardADTaskRequest,
@@ -458,7 +462,7 @@ public class ADTaskManager {
             );
         }, listener);
         */
-        DiscoveryNode owningNode = clusterService.localNode();
+        DiscoveryNode owningNode = sdkClusterService.localNode();
         logger.debug("coordinating node is : {} for detector: {}", owningNode.getId(), detectorId);
         forwardDetectRequestToCoordinatingNode(
             detector,
@@ -518,7 +522,7 @@ public class ADTaskManager {
             );
         */
         Version adVersion = Version.CURRENT;
-        client
+        sdkRestClient
             .execute(
                 ForwardADTaskAction.INSTANCE,
                 // We need to check AD version of remote node as we may send clean detector cache request to old
@@ -553,7 +557,7 @@ public class ADTaskManager {
                 new ActionListenerResponseHandler<>(listener, AnomalyDetectorJobResponse::new)
             );
         */
-        client
+        sdkRestClient
             .execute(
                 ForwardADTaskAction.INSTANCE,
                 new ForwardADTaskRequest(adTask, adTaskAction),
@@ -587,7 +591,7 @@ public class ADTaskManager {
                 new ActionListenerResponseHandler<>(listener, AnomalyDetectorJobResponse::new)
             );
         */
-        client
+        sdkRestClient
             .execute(
                 ForwardADTaskAction.INSTANCE,
                 new ForwardADTaskRequest(adTask, adTaskAction, staleRunningEntity),
@@ -638,13 +642,13 @@ public class ADTaskManager {
         /* @anomaly-detection commented until we have support for the hashring: https://github.com/opensearch-project/opensearch-sdk-java/issues/200  
         hashRing.getNodesWithSameLocalAdVersion(nodes -> {
         */
-        DiscoveryNode[] extensionNode = { clusterService.localNode() };
+        DiscoveryNode[] extensionNode = { sdkClusterService.localNode() };
 
         int maxAdTaskSlots = extensionNode.length * maxAdBatchTaskPerNode;
         ADStatsRequest adStatsRequest = new ADStatsRequest(extensionNode);
         adStatsRequest
             .addAll(ImmutableSet.of(AD_USED_BATCH_TASK_SLOT_COUNT.getName(), AD_DETECTOR_ASSIGNED_BATCH_TASK_SLOT_COUNT.getName()));
-        client.execute(ADStatsNodesAction.INSTANCE, adStatsRequest, ActionListener.wrap(adStatsResponse -> {
+        sdkRestClient.execute(ADStatsNodesAction.INSTANCE, adStatsRequest, ActionListener.wrap(adStatsResponse -> {
             int totalUsedTaskSlots = 0; // Total entity tasks running on worker nodes
             int totalAssignedTaskSlots = 0; // Total assigned task slots on coordinating nodes
             for (ADStatsNodeResponse response : adStatsResponse.getNodes()) {
@@ -762,7 +766,7 @@ public class ADTaskManager {
                 new ActionListenerResponseHandler<>(listener, AnomalyDetectorJobResponse::new)
             );
         */
-        client
+        sdkRestClient
             .execute(
                 ForwardADTaskAction.INSTANCE,
                 new ForwardADTaskRequest(adTask, approvedTaskSlot, ADTaskAction.SCALE_ENTITY_TASK_SLOTS),
@@ -934,7 +938,7 @@ public class ADTaskManager {
      */
     public <T> void getDetector(String detectorId, Consumer<Optional<AnomalyDetector>> function, ActionListener<T> listener) {
         GetRequest getRequest = new GetRequest(ANOMALY_DETECTORS_INDEX, detectorId);
-        client.get(getRequest, ActionListener.wrap(response -> {
+        sdkRestClient.get(getRequest, ActionListener.wrap(response -> {
             if (!response.isExists()) {
                 function.accept(Optional.empty());
                 return;
@@ -1071,7 +1075,7 @@ public class ADTaskManager {
         searchRequest.source(sourceBuilder);
         searchRequest.indices(DETECTION_STATE_INDEX);
 
-        client.search(searchRequest, ActionListener.wrap(r -> {
+        sdkRestClient.search(searchRequest, ActionListener.wrap(r -> {
             // https://github.com/opendistro-for-elasticsearch/anomaly-detection/pull/359#discussion_r558653132
             // getTotalHits will be null when we track_total_hits is false in the query request.
             // Add more checking here to cover some unknown cases.
@@ -1162,7 +1166,7 @@ public class ADTaskManager {
         ADTask adTask = runningRealtimeTasks.get(0);
         String detectorId = adTask.getDetectorId();
         GetRequest getJobRequest = new GetRequest(ANOMALY_DETECTOR_JOB_INDEX).id(detectorId);
-        client.get(getJobRequest, ActionListener.wrap(r -> {
+        sdkRestClient.get(getJobRequest, ActionListener.wrap(r -> {
             if (r.isExists()) {
                 try (XContentParser parser = createXContentParserFromRegistry(xContentRegistry.getRegistry(), r.getSourceAsBytesRef())) {
                     ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.nextToken(), parser);
@@ -1314,11 +1318,11 @@ public class ADTaskManager {
         /* @anomaly-detection commented until we have support for the hashring: https://github.com/opensearch-project/opensearch-sdk-java/issues/200  
         DiscoveryNode[] dataNodes = hashRing.getNodesWithSameLocalAdVersion();
         */
-        DiscoveryNode[] dataNodes = { clusterService.localNode() };
+        DiscoveryNode[] dataNodes = { sdkClusterService.localNode() };
         String userName = user == null ? null : user.getName();
 
         ADCancelTaskRequest cancelTaskRequest = new ADCancelTaskRequest(detectorId, taskId, userName, dataNodes);
-        client
+        sdkRestClient
             .execute(
                 ADCancelTaskAction.INSTANCE,
                 cancelTaskRequest,
@@ -1504,12 +1508,11 @@ public class ADTaskManager {
     private void getADTaskProfile(ADTask adDetectorLevelTask, ActionListener<ADTaskProfile> listener) {
         String detectorId = adDetectorLevelTask.getDetectorId();
 
-        /* @anomaly.detection Commented until we have extension support for hashring : https://github.com/opensearch-project/opensearch-sdk-java/issues/200 
-        hashRing.getAllEligibleDataNodesWithKnownAdVersion(dataNodes ->
-        */
-        DiscoveryNode[] dataNodes = { clusterService.localNode() };
-        ADTaskProfileRequest adTaskProfileRequest = new ADTaskProfileRequest(detectorId, dataNodes);
-        client.execute(ADTaskProfileAction.INSTANCE, adTaskProfileRequest, ActionListener.wrap(response -> {
+        /* MultiNode support https://github.com/opensearch-project/opensearch-sdk-java/issues/200 */
+        // hashRing.getAllEligibleDataNodesWithKnownAdVersion(dataNodes -> {
+
+        ADTaskProfileRequest adTaskProfileRequest = new ADTaskProfileRequest(detectorId, sdkClusterService.localNode());
+        sdkRestClient.execute(ADTaskProfileAction.INSTANCE, adTaskProfileRequest, ActionListener.wrap(response -> {
             if (response.hasFailures()) {
                 listener.onFailure(response.failures().get(0));
                 return;
@@ -1550,6 +1553,7 @@ public class ADTaskManager {
             logger.error("Failed to get task profile for task " + adDetectorLevelTask.getTaskId(), e);
             listener.onFailure(e);
         }));
+        // }, listener);
 
     }
 
@@ -1598,7 +1602,7 @@ public class ADTaskManager {
                 // coordinating node once realtime job starts.
                 // For historical analysis, this method will be called on coordinating node, so we can set coordinating
                 // node as local node.
-                String coordinatingNode = detectionDateRange == null ? null : clusterService.localNode().getId();
+                String coordinatingNode = detectionDateRange == null ? null : sdkClusterService.localNode().getId();
                 createNewADTask(detector, detectionDateRange, user, coordinatingNode, listener);
             } else {
                 logger
@@ -1668,7 +1672,7 @@ public class ADTaskManager {
             request
                 .source(adTask.toXContent(builder, RestHandlerUtils.XCONTENT_WITH_TYPE))
                 .setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);
-            client.index(request, ActionListener.wrap(r -> function.accept(r), e -> {
+            sdkRestClient.index(request, ActionListener.wrap(r -> function.accept(r), e -> {
                 logger.error("Failed to create AD task for detector " + adTask.getDetectorId(), e);
                 listener.onFailure(e);
             }));
@@ -1825,7 +1829,7 @@ public class ADTaskManager {
             }
         });
 
-        client.search(searchRequest, searchListener);
+        sdkRestClient.search(searchRequest, searchListener);
     }
 
     /**
@@ -1876,7 +1880,7 @@ public class ADTaskManager {
     }
 
     private void runBatchResultAction(IndexResponse response, ADTask adTask, ActionListener<AnomalyDetectorJobResponse> listener) {
-        client.execute(ADBatchAnomalyResultAction.INSTANCE, new ADBatchAnomalyResultRequest(adTask), ActionListener.wrap(r -> {
+        sdkRestClient.execute(ADBatchAnomalyResultAction.INSTANCE, new ADBatchAnomalyResultRequest(adTask), ActionListener.wrap(r -> {
             String remoteOrLocal = r.isRunTaskRemotely() ? "remote" : "local";
             logger
                 .info(
@@ -1967,7 +1971,7 @@ public class ADTaskManager {
         updatedContent.put(LAST_UPDATE_TIME_FIELD, Instant.now().toEpochMilli());
         updateRequest.doc(updatedContent);
         updateRequest.setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);
-        client.update(updateRequest, listener);
+        sdkRestClient.update(updateRequest, listener);
     }
 
     /**
@@ -1994,7 +1998,7 @@ public class ADTaskManager {
      */
     public void deleteADTask(String taskId, ActionListener<DeleteResponse> listener) {
         DeleteRequest deleteRequest = new DeleteRequest(DETECTION_STATE_INDEX, taskId);
-        client.delete(deleteRequest, listener);
+        sdkRestClient.delete(deleteRequest, listener);
     }
 
     /**
@@ -2192,7 +2196,7 @@ public class ADTaskManager {
             return;
         }
         Map<String, Object> updatedFields = new HashMap<>();
-        updatedFields.put(COORDINATING_NODE_FIELD, clusterService.localNode().getId());
+        updatedFields.put(COORDINATING_NODE_FIELD, sdkClusterService.localNode().getId());
         if (initProgress != null) {
             updatedFields.put(INIT_PROGRESS_FIELD, initProgress);
             updatedFields.put(ESTIMATED_MINUTES_LEFT_FIELD, Math.max(0, NUM_MIN_SAMPLES - rcfTotalUpdates) * detectorIntervalInMinutes);
@@ -2253,7 +2257,7 @@ public class ADTaskManager {
                         detector,
                         null,
                         detector.getUser(),
-                        clusterService.localNode().getId(),
+                        sdkClusterService.localNode().getId(),
                         ActionListener.wrap(r -> {
                             logger.info("Recreate realtime task successfully for detector {}", detectorId);
                             adTaskCacheManager.initRealtimeTaskCache(detectorId, detector.getDetectorIntervalInMilliseconds());
@@ -2268,7 +2272,7 @@ public class ADTaskManager {
                 }
 
                 ADTask adTask = adTaskOptional.get();
-                String localNodeId = clusterService.localNode().getId();
+                String localNodeId = sdkClusterService.localNode().getId();
                 String oldCoordinatingNode = adTask.getCoordinatingNode();
                 if (oldCoordinatingNode != null && !localNodeId.equals(oldCoordinatingNode)) {
                     logger
@@ -2537,7 +2541,7 @@ public class ADTaskManager {
         SearchRequest request = new SearchRequest();
         request.source(sourceBuilder);
         request.indices(DETECTION_STATE_INDEX);
-        client.search(request, ActionListener.wrap(r -> {
+        sdkRestClient.search(request, ActionListener.wrap(r -> {
             TotalHits totalHits = r.getHits().getTotalHits();
             listener.onResponse(totalHits.value);
         }, e -> listener.onFailure(e)));
@@ -2654,7 +2658,7 @@ public class ADTaskManager {
             listener.onResponse(new AnomalyDetectorJobResponse(detectorId, 0, 0, 0, RestStatus.ACCEPTED));
             return;
         }
-        client.execute(ADBatchAnomalyResultAction.INSTANCE, new ADBatchAnomalyResultRequest(adTask), ActionListener.wrap(r -> {
+        sdkRestClient.execute(ADBatchAnomalyResultAction.INSTANCE, new ADBatchAnomalyResultRequest(adTask), ActionListener.wrap(r -> {
             String remoteOrLocal = r.isRunTaskRemotely() ? "remote" : "local";
             logger
                 .info(
@@ -2766,7 +2770,7 @@ public class ADTaskManager {
         /* @anomaly-detection commented until we have support for the hashring: https://github.com/opensearch-project/opensearch-sdk-java/issues/200  
         DiscoveryNode[] eligibleDataNodes = hashRing.getNodesWithSameLocalAdVersion();
         */
-        DiscoveryNode[] eligibleDataNodes = { clusterService.localNode() };
+        DiscoveryNode[] eligibleDataNodes = { sdkClusterService.localNode() };
         int unfinishedEntities = adTaskCacheManager.getUnfinishedEntityCount(detectorId);
         int totalTaskSlots = eligibleDataNodes.length * maxAdBatchTaskPerNode;
         int taskLaneLimit = Math.min(unfinishedEntities, Math.min(totalTaskSlots, maxRunningEntitiesPerDetector));
@@ -2810,7 +2814,7 @@ public class ADTaskManager {
         List<String> tasksOfDetector = adTaskCacheManager.getTasksOfDetector(detectorId);
         ADTaskProfile detectorTaskProfile = null;
 
-        String localNodeId = clusterService.localNode().getId();
+        String localNodeId = sdkClusterService.localNode().getId();
         if (adTaskCacheManager.isHCTaskRunning(detectorId)) {
             detectorTaskProfile = new ADTaskProfile();
             if (adTaskCacheManager.isHCTaskCoordinatingNode(detectorId)) {
@@ -3017,7 +3021,7 @@ public class ADTaskManager {
      */
     public void getADTask(String taskId, ActionListener<Optional<ADTask>> listener) {
         GetRequest request = new GetRequest(DETECTION_STATE_INDEX, taskId);
-        client.get(request, ActionListener.wrap(r -> {
+        sdkRestClient.get(request, ActionListener.wrap(r -> {
             if (r != null && r.isExists()) {
                 try (XContentParser parser = createXContentParserFromRegistry(xContentRegistry.getRegistry(), r.getSourceAsBytesRef())) {
                     ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.nextToken(), parser);
@@ -3135,10 +3139,12 @@ public class ADTaskManager {
         // Clean expired HC batch task run state cache.
         adTaskCacheManager.cleanExpiredHCBatchTaskRunStates();
 
+        /* MultiNode support https://github.com/opensearch-project/opensearch-sdk-java/issues/200 */
         // Find owning node with highest AD version to make sure we only have 1 node maintain running historical tasks
         // and we use the latest logic.
-        Optional<DiscoveryNode> owningNode = hashRing.getOwningNodeWithHighestAdVersion(AD_TASK_MAINTAINENCE_NODE_MODEL_ID);
-        if (!owningNode.isPresent() || !clusterService.localNode().getId().equals(owningNode.get().getId())) {
+        // Optional<DiscoveryNode> owningNode = hashRing.getOwningNodeWithHighestAdVersion(AD_TASK_MAINTAINENCE_NODE_MODEL_ID);
+        Optional<DiscoveryNode> owningNode = Optional.ofNullable(sdkClusterService.localNode());
+        if (!owningNode.isPresent() || !sdkClusterService.localNode().getId().equals(owningNode.get().getId())) {
             return;
         }
         logger.info("Start to maintain running historical tasks");
@@ -3154,7 +3160,7 @@ public class ADTaskManager {
         searchRequest.source(sourceBuilder);
         searchRequest.indices(DETECTION_STATE_INDEX);
 
-        client.search(searchRequest, ActionListener.wrap(r -> {
+        sdkRestClient.search(searchRequest, ActionListener.wrap(r -> {
             if (r == null || r.getHits().getTotalHits() == null || r.getHits().getTotalHits().value == 0) {
                 return;
             }
